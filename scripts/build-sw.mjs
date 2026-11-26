@@ -1,0 +1,13 @@
+import { readdir, readFile, writeFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+const files = (await readdir('dist', {recursive:true,withFileTypes:true})).filter(x=>x.isFile() && x.name!=='sw.js').map(x=>`${x.parentPath}/${x.name}`.replaceAll('\\','/').replace(/^dist\//,'')).sort();
+const hash=createHash('sha256');
+for(const file of files) hash.update(file).update(await readFile(`dist/${file}`));
+const version=hash.digest('hex').slice(0,16);
+await writeFile('dist/sw.js',`const PREFIX='moj-polski-'+self.registration.scope+'-';
+const CACHE=PREFIX+'${version}';
+const FILES=${JSON.stringify(['./',...files.map(x=>'./'+x)])};
+self.addEventListener('install',event=>event.waitUntil(caches.open(CACHE).then(cache=>cache.addAll(FILES.map(x=>new Request(new URL(x,self.registration.scope),{cache:'reload'}))))));
+self.addEventListener('activate',event=>event.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k.startsWith(PREFIX)&&k!==CACHE).map(k=>caches.delete(k)))).then(()=>self.clients.claim())));
+self.addEventListener('fetch',event=>{const r=event.request; if(r.method!=='GET'||!r.url.startsWith(self.registration.scope))return; if(r.mode==='navigate'){event.respondWith(caches.open(CACHE).then(c=>c.match(new URL('./index.html',self.registration.scope))).then(v=>v||fetch(r)));return;} event.respondWith(caches.open(CACHE).then(c=>c.match(r)).then(v=>v||fetch(r)));});
+`);
